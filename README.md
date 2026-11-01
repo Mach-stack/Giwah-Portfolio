@@ -9,3 +9,8 @@ Deploy (needs Node 18+ and a free Netlify account):
    Do this straight away, since the first visitor to claim becomes the owner.
 
 Site data and uploaded images are stored in Netlify Blobs (no setup needed).
+
+## Features
+Gallery, showreel (YouTube embeds), contact form + admin inbox, CV download (PDF), project detail pages,
+skills/experience, brands, testimonials, visit counter, link-preview image (set for https://giwah.netlify.app;
+edit the URLs in index.html if you use another domain).

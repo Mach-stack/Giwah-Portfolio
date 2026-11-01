@@ -2,14 +2,16 @@ import { useEffect, useState } from 'react';
 import type { CSSProperties, ReactNode } from 'react';
 import { ArrowRight, Plus, Trash2, Upload, LogOut } from 'lucide-react';
 import { api } from './api';
+import { cache, useImg, shrink } from './img';
+import { AdminExtras, BLANK_PROJECT, DEFAULT_EXTRAS, MoreSections, ProjectExtraEditor, ProjectPage, trackVisit } from './extras';
+import type { Extras, Project } from './extras';
 
-type Project = { id: string; title: string; desc: string; tools: string; imageId: string };
 type Social = { label: string; url: string };
 type Config = {
   name: string; greeting: string; tagline: string; blurb: string; points: string[]; strip: string;
   aboutKicker: string; aboutTitle: string; aboutText: string; projectsTitle: string; email: string;
   accent: string; blend: boolean; heroImageId: string; socials: Social[]; projects: Project[];
-};
+} & Extras;
 
 const HERO = '/resources/giwah-hero.jpg';
 
@@ -30,55 +32,20 @@ const DEFAULT: Config = {
   heroImageId: '',
   socials: [{ label: 'Instagram', url: 'https://instagram.com' }, { label: 'LinkedIn', url: 'https://linkedin.com' }],
   projects: [],
+  ...DEFAULT_EXTRAS,
 };
-
-const cache = new Map<string, string>();
-
-function useImg(id: string): string {
-  const [src, setSrc] = useState(cache.get(id) || '');
-  useEffect(() => {
-    if (!id) { setSrc(''); return; }
-    const hit = cache.get(id);
-    if (hit) { setSrc(hit); return; }
-    api.get('/api/image/' + id)
-      .then((r) => { cache.set(id, r.data.data); setSrc(r.data.data); })
-      .catch(() => setSrc(''));
-  }, [id]);
-  return src;
-}
-
-function shrink(file: File, max: number): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const url = URL.createObjectURL(file);
-    const im = new Image();
-    im.onload = () => {
-      const s = Math.min(1, max / Math.max(im.width, im.height));
-      const c = document.createElement('canvas');
-      c.width = Math.round(im.width * s);
-      c.height = Math.round(im.height * s);
-      c.getContext('2d')!.drawImage(im, 0, 0, c.width, c.height);
-      let q = 0.88;
-      let d = c.toDataURL('image/jpeg', q);
-      while (d.length > 1000000 && q > 0.3) { q -= 0.1; d = c.toDataURL('image/jpeg', q); }
-      URL.revokeObjectURL(url);
-      resolve(d);
-    };
-    im.onerror = () => reject(new Error('Could not read image'));
-    im.src = url;
-  });
-}
 
 function ProjectCard({ p }: { p: Project }) {
   const src = useImg(p.imageId);
   return (
-    <article className="overflow-hidden rounded-3xl border border-[#1c2a52] bg-[#0e1527]">
+    <a href={'#/project/' + p.id} className="block overflow-hidden rounded-3xl border border-[#1c2a52] bg-[#0e1527]">
       <div className="aspect-[4/3] bg-[#111c3a]">{src && <img src={src} alt={p.title} className="h-full w-full object-cover" />}</div>
       <div className="p-5">
         <h3 className="text-lg font-bold">{p.title}</h3>
         <p className="mt-2 text-sm text-slate-300">{p.desc}</p>
         {p.tools && <p className="mt-3 text-xs font-semibold" style={{ color: 'var(--a)' }}>{p.tools}</p>}
       </div>
-    </article>
+    </a>
   );
 }
 
@@ -134,6 +101,7 @@ function Site({ cfg }: { cfg: Config }) {
         </div>
         <div>
           <p className="text-lg font-semibold leading-relaxed">{cfg.aboutText}</p>
+          {cfg.hasCv && <a href="/api/cv" className="mt-5 inline-block text-sm font-bold underline" style={{ color: 'var(--a)' }}>Download CV</a>}
           <a href={'mailto:' + cfg.email} className="pill mt-8" style={{ background: 'var(--a)', color: '#fff' }}>Get in touch<span style={{ background: '#fff', color: 'var(--a)' }}><ArrowRight size={16} /></span></a>
         </div>
       </section>
@@ -143,6 +111,8 @@ function Site({ cfg }: { cfg: Config }) {
         {cfg.projects.length === 0 && <p className="mt-4 text-slate-400">Projects coming soon.</p>}
         <div className="mt-8 grid gap-6 md:grid-cols-3">{cfg.projects.map((p) => <ProjectCard key={p.id} p={p} />)}</div>
       </section>
+
+      <MoreSections cfg={cfg} />
 
       <footer className="border-t border-[#1c2a52] px-6 py-10 text-center text-sm text-slate-400">
         <div className="mb-3 flex justify-center gap-5">
@@ -281,13 +251,14 @@ function Admin({ cfg, claimed, onSaved }: { cfg: Config; claimed: boolean; onSav
       <div className="space-y-4 rounded-3xl border border-[#22325f] bg-[#0b1226] p-5">
         <div className="flex items-center justify-between">
           <h2 className="font-bold">Engineering projects</h2>
-          <button className="btn" onClick={() => set('projects', [...draft.projects, { id: String(Date.now()), title: 'New project', desc: '', tools: '', imageId: '' }])}><Plus size={14} className="inline" /> Add project</button>
+          <button className="btn" onClick={() => set('projects', [...draft.projects, { ...BLANK_PROJECT, id: String(Date.now()), title: 'New project' }])}><Plus size={14} className="inline" /> Add project</button>
         </div>
         {draft.projects.map((p, i) => (
           <div key={p.id} className="grid gap-3 rounded-2xl border border-[#22325f] p-4">
             <Row label="Title"><input className="inp" value={p.title} onChange={(e) => setProj(i, { title: e.target.value })} /></Row>
             <Row label="Description"><textarea className="inp" rows={3} value={p.desc} onChange={(e) => setProj(i, { desc: e.target.value })} /></Row>
             <Row label="Tools / skills"><input className="inp" value={p.tools} onChange={(e) => setProj(i, { tools: e.target.value })} /></Row>
+            <ProjectExtraEditor p={p} onChange={(patch) => setProj(i, patch)} upload={upload} setMsg={setMsg} />
             <div className="flex items-center gap-3">
               {fileBtn(p.imageId ? 'Replace image' : 'Upload image', async (f) => setProj(i, { imageId: await upload(f, 1200) }))}
               {p.imageId && <span className="text-xs text-green-300">Image attached</span>}
@@ -322,6 +293,8 @@ function Admin({ cfg, claimed, onSaved }: { cfg: Config; claimed: boolean; onSav
         <div className="flex items-end"><button className="btn ghost w-full" onClick={changePw}>Change password</button></div>
       </div>
 
+      <AdminExtras draft={draft} patch={(p) => setDraft({ ...draft, ...p })} token={token} upload={upload} setMsg={setMsg} />
+
       <div className="sticky bottom-4"><button className="btn w-full py-4 text-base shadow-xl" onClick={save}>Save all changes</button></div>
     </div>
   );
@@ -339,13 +312,15 @@ export default function App() {
     return () => window.removeEventListener('hashchange', h);
   }, []);
   useEffect(() => {
+    trackVisit();
     api.get('/api/site')
-      .then((r) => { if (r.data.config) setCfg({ ...DEFAULT, ...r.data.config }); setClaimed(!!r.data.claimed); })
+      .then((r) => { setCfg({ ...DEFAULT, ...(r.data.config || {}), hasCv: !!r.data.hasCv }); setClaimed(!!r.data.claimed); })
       .catch(() => undefined)
       .finally(() => setReady(true));
   }, []);
 
   if (!ready) return <div className="grid min-h-screen place-items-center text-slate-400">Loading...</div>;
+  if (route.startsWith('#/project/')) return <ProjectPage cfg={cfg} id={route.slice(10)} />;
   if (route.startsWith('#/admin')) return <div style={{ '--a': cfg.accent } as CSSProperties}><Admin cfg={cfg} claimed={claimed} onSaved={setCfg} /></div>;
   return <Site cfg={cfg} />;
 }
